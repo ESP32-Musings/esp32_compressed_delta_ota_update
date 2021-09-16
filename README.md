@@ -1,3 +1,4 @@
+ ![Status](https://img.shields.io/badge/status-experimental-red)
 # ESP32 Compressed Delta OTA Updates
 
 ## About the Project
@@ -16,10 +17,14 @@ You can also try running on ESP32-S2 or ESP32-C3 dev boards and let me know how 
 
   You can visit the [ESP-IDF Programmming Guide](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/index.html#installation-step-by-step) for the installation steps.
 
+* **detools v0.50.0 and above**
 
-* **detools**
+  Binary delta encoding in Python 3.6+. You can follow the instructions [here](https://pypi.org/project/detools/) for installation.
 
-  Binary delta encoding in Python 3. You can follow the instructions [here](https://pypi.org/project/detools/) for installation.
+* **Partition Tool (parttool.py)**
+
+  [parttool.py](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/partition-tables.html#command-line-interface) comes pre-installed with ESP-IDF; it can be used after the ESP-IDF python venv is initialised - See [here](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/#step-4-set-up-the-environment-variables).
+
 
 ## Usage
 
@@ -32,7 +37,6 @@ You can also try running on ESP32-S2 or ESP32-C3 dev boards and let me know how 
    `detools create_patch -c heatshrink base_binary.bin updated_binary.bin patch.bin`
 
 3. Currently, patch application demo is supported only for the `ota_0` partition.  So, we need to flash the base binary to the `ota_0` partition.
-   [parttool.py](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/partition-tables.html#command-line-interface) comes pre-installed with ESP-IDF; it can be used after the ESP-IDF python venv is initialised - See [here](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/#step-4-set-up-the-environment-variables).
 
    `parttool.py --port "/dev/ttyUSB0"  --baud 2000000 write_partition --partition-name=ota_0 --input="base_binary.bin"`
 
@@ -62,37 +66,49 @@ You can also try running on ESP32-S2 or ESP32-C3 dev boards and let me know how 
 
 ## Experiments
 
-| Chip  | Scenario                        | Base binary | Updated binary | Compressed binary patch (Heatshrink) | Patch-to-File % |
-|-------|---------------------------------|-------------|----------------|--------------------------------------|-----------------|
-| ESP32 | test_basic_enable_small_feature | 168208      | 155136         | 11036                                | 7.11%           |
-| ESP32 | test_nvs_app_modification       | 190656      | 199824         | 16245                                | 8.13%           |
-|       |                                 |             |                |                                      |                 |
+| Chip  | Scenario                                     | Base binary | Updated binary | Compressed binary patch (Heatshrink) | Patch-to-File % |
+|-------|----------------------------------------------|-------------|----------------|--------------------------------------|-----------------|
+| ESP32 | test_basic_enable_small_feature              | 168208      | 155136         | 11036                                | 7.11%           |
+| ESP32 | test_nvs_app_modification                    | 190656      | 199824         | 16245                                | 8.13%           |
+| ESP32 | test_http_upgrade_with_ssl                   | 672736      | 761184         | 138839                               | 18.24%          |
+| ESP32 | test_provisioning_upgrade_idf_patch_version  | 966656      | 924448         | 234096                               | 25.32%          |
 
 - As Heatshrink uses static allocation with small look-ahead buffers, it has almost no impact on heap memory.
 ### Test Scenarios: ESP-IDF 4.4-dev (Master branch)
 
 1. **test_basic_enable_small_feature:** Enabling a small feature in an update
 
-    Base binary: Compile `hello-world` application
+    Base binary: Compile `get-started/hello-world` example
 
     Updated binary: Same, but disable CONFIG_VFS_SUPPORT_IO option in sdkconfig
 
-
 2. **test_nvs_app_modification**: Changing user application flow without changing the set of libraries used
 
-    Base binary: Compile `nvs_rw_value` example
+    Base binary: Compile `storage/nvs_rw_value` example
 
-    Updated binary: Compile `nvs_rw_blob` example
+    Updated binary: Compile `storage/nvs_rw_blob` example
+
+3. **test_http_upgrade_with_ssl**: Changing user application flow with new set of libraries added
+
+    Base binary: Compile `protocols/http_server/simple` example
+
+    Updated binary: Compile `protocols/https_server/simple` example
+
+4. **test_provisioning_upgrade_idf_patch_version**: Upgrading IDF to the next patch version
+
+    Base binary: Using IDF 4.3, compile `provisioning/wifi_prov_mgr` example
+
+    Update binary: Same, but with IDF 4.3.1; sdkconfig is generated from scratch.
 
 ## To-do:
+
+- [x] Experiments with more test scenarios, especially with bigger binaries
 
 - [ ] Add complete workflow example
   - Currently patch is applied to the `ota_0` partition rather than the `factory`
 
-- [ ] Experiments with more test scenarios, especially with bigger binaries
-
 - [ ] Optimize Heatshrink compression parameters
-  - Currently running on low memory usage mode and static allocation
+  - Currently running on low memory usage mode (8, 7) and static allocation
 
 - [ ] Binary patch with LZMA compression in detools
   - LZMA is memory-heavy but will provide a greater compression ratio for the patch
@@ -103,7 +119,7 @@ You can also try running on ESP32-S2 or ESP32-C3 dev boards and let me know how 
 
 - detool: Binary delta encoding in Python 3 and C 🡒 [Source](https://github.com/eerimoq/detools) | [Docs](https://detools.readthedocs.io/en/latest/)
 - heatshrink: An Embedded Data Compression Library 🡒 [Source](https://github.com/atomicobject/heatshrink) | [Blog](https://spin.atomicobject.com/2013/03/14/heatshrink-embedded-data-compression/)
-- Delta updates for embedded systems: [Source](https://gitlab.endian.se/thesis-projects/delta-updates-for-embedded-systems) | [Docs](https://odr.chalmers.se/bitstream/20.500.12380/302598/1/21-17%20Lindh.pdf)
+- Delta updates for embedded systems 🡒 [Source](https://gitlab.endian.se/thesis-projects/delta-updates-for-embedded-systems) | [Docs](https://odr.chalmers.se/bitstream/20.500.12380/302598/1/21-17%20Lindh.pdf)
 
 
 ## License
