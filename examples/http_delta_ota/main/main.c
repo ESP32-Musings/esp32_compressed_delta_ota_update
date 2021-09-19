@@ -22,50 +22,50 @@
 #include "esp_http_server.h"
 #include "delta.h"
 
-#define HTTP_CHUNK_SIZE (1024)
+#define HTTP_CHUNK_SIZE (2048)
 
 static const char *TAG = "http_delta_ota";
 
-static esp_err_t patch_partition_write(const esp_partition_t *patch, char *recv_buf, size_t size)
+static void reboot(void)
 {
-    static size_t patch_wr_ptr = 0, offset = 0;
-    patch_wr_ptr += size;
+    ESP_LOGI(TAG, "Rebooting in 5 seconds...");
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
+    esp_restart();
+}
+
+static esp_err_t patch_partition_write(char *recv_buf, size_t size, size_t patch_size)
+{
+    static size_t offset = 0;
+    static const esp_partition_t *patch = NULL;
 
     if (offset == 0) {
-        if (esp_partition_erase_range(patch, 0, PARTITION_PAGE_SIZE) != ESP_OK) {
+        patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, PARTITION_LABEL_PATCH);
+        if (patch == NULL){
+            ESP_LOGE(TAG, "Partition Error: Could not find 'patch' partition");
+            return ESP_FAIL;
+        }
+
+        size_t patch_page_size = (patch_size + PARTITION_PAGE_SIZE) - (patch_size % PARTITION_PAGE_SIZE);
+        if (esp_partition_erase_range(patch, offset, patch_page_size) != ESP_OK) {
             ESP_LOGE(TAG, "Partition Error: Could not erase 'patch' region!");
             return ESP_FAIL;
         }
-    }
-    else if (patch_wr_ptr >= PARTITION_PAGE_SIZE) {
-        size_t page_start = (offset + size) - ((offset + size) % PARTITION_PAGE_SIZE);
-        if (esp_partition_erase_range(patch, page_start, PARTITION_PAGE_SIZE) != ESP_OK) {
-            ESP_LOGE(TAG, "Partition Error: Could not erase 'patch' region!");
-            return ESP_FAIL;
-        }
-        patch_wr_ptr = 0;
     }
 
     if (esp_partition_write(patch, offset, recv_buf, size) != ESP_OK) {
         ESP_LOGE(TAG, "Partition Error: Could not write to 'patch' region!");
         return ESP_FAIL;
     };
-    offset += size;
 
+    offset += size;
     return ESP_OK;
 }
 
 static esp_err_t ota_post_handler(httpd_req_t *req)
 {
-    const esp_partition_t *patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, PARTITION_LABEL_PATCH);
-    if (patch == NULL){
-        ESP_LOGE(TAG, "Partition Error: Could not find 'patch' partition");
-        return ESP_FAIL;
-    }
-
     char *recv_buf = calloc(HTTP_CHUNK_SIZE, sizeof(char));
     int ret, content_length = req->content_len;
-    ESP_LOGI(TAG, "Content length: %dB", content_length);
+    ESP_LOGI(TAG, "Content length: %d B", content_length);
 
     int remaining = content_length;
     int64_t start = esp_timer_get_time();
@@ -76,15 +76,16 @@ static esp_err_t ota_post_handler(httpd_req_t *req)
                 /* Retry receiving if timeout occurred */
                 continue;
             }
-            return ESP_FAIL;
+            goto ERROR;
         }
 
-        if (patch_partition_write(patch, recv_buf, ret) != ESP_OK) {
-            return ESP_FAIL;
+        if (patch_partition_write(recv_buf, ret, content_length) != ESP_OK) {
+            goto ERROR;
         };
 
         remaining -= ret;
         memset(recv_buf, 0x00, HTTP_CHUNK_SIZE);
+        ESP_LOGI(TAG, "Download Progress: %0.2f %%", ((float)(content_length - remaining) / content_length) * 100);
     }
 
     free(recv_buf);
@@ -96,9 +97,15 @@ static esp_err_t ota_post_handler(httpd_req_t *req)
     int err = delta_check_and_apply(content_length);
     if (err) {
         ESP_LOGE(TAG, "Error: %s", delta_error_as_string(err));
-        return ESP_FAIL;
+        goto ERROR;
     }
 
+    httpd_resp_send(req, NULL, 0);
+    reboot();
+    return ESP_OK;
+
+ERROR:
+    httpd_resp_send_500(req);
     return ESP_OK;
 }
 

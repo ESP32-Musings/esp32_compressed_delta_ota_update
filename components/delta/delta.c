@@ -152,7 +152,7 @@ static int delta_init_flash_mem(flash_mem_t *flash)
     return DELTA_OK;
 }
 
-static int delta_reboot(flash_mem_t *flash)
+static int delta_set_boot_partition(flash_mem_t *flash)
 {
     if (esp_ota_set_boot_partition(flash->dest) != ESP_OK) {
         return -DELTA_TARGET_IMAGE_ERROR;
@@ -160,23 +160,22 @@ static int delta_reboot(flash_mem_t *flash)
 
     const esp_partition_t *boot_partition = esp_ota_get_boot_partition();
     ESP_LOGI(TAG, "Next Boot Partition: Subtype %d at Offset 0x%x", boot_partition->subtype, boot_partition->address);
+    ESP_LOGI(TAG, "Ready to reboot!!!");
 
-    ESP_LOGI(TAG, "Rebooting in 5 seconds...");
-    vTaskDelay(5000 / portTICK_PERIOD_MS);
-    esp_restart();
+    return DELTA_OK;
 }
 
 int delta_check_and_apply(int patch_size)
 {
     ESP_LOGI(TAG, "Initializing delta update...");
 
-    flash_mem_t *flash_ptr = calloc(1, sizeof(flash_mem_t));
+    flash_mem_t *flash = calloc(1, sizeof(flash_mem_t));
     int ret = 0;
 
     if (patch_size < 0) {
         return patch_size;
     } else if (patch_size > 0) {
-        ret = delta_init_flash_mem(flash_ptr);
+        ret = delta_init_flash_mem(flash);
         if (ret) {
             return ret;
         }
@@ -186,14 +185,14 @@ int delta_check_and_apply(int patch_size)
                                             delta_flash_read_patch,
                                             (size_t) patch_size,
                                             delta_flash_write_dest,
-                                            flash_ptr);
+                                            flash);
 
         if (ret <= 0) {
             return ret;
         }
 
         ESP_LOGI(TAG, "Patch Successful!!!");
-        return delta_reboot(flash_ptr);
+        return delta_set_boot_partition(flash);
     }
 
     return 0;

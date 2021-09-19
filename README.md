@@ -17,7 +17,7 @@ You can also try running on ESP32-S2 or ESP32-C3 dev boards and let me know how 
 
   You can visit the [ESP-IDF Programmming Guide](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/index.html#installation-step-by-step) for the installation steps.
 
-* **detools v0.50.0 and above**
+* **detools v0.49.0 and above**
 
   Binary delta encoding in Python 3.6+. You can follow the instructions [here](https://pypi.org/project/detools/) for installation.
 
@@ -28,9 +28,9 @@ You can also try running on ESP32-S2 or ESP32-C3 dev boards and let me know how 
 
 ## Usage
 
-1. Build and flash the partition table `partitions.csv` in the `examples/http_delta_ota` directory.
+1. Build the example `examples/http_delta_ota` and flash the partition table `partitions.csv`.
 
-   `idf.py partition_table-flash`
+   `idf.py build && idf.py partition_table-flash`
 
 2. To generate the patch, we need 2 application binaries, namely `base_binary` and `updated_binary`.
 
@@ -45,7 +45,7 @@ You can also try running on ESP32-S2 or ESP32-C3 dev boards and let me know how 
     2. WiFi Password: WiFi password
 
 5. In order to test the OTA demo -> `examples/http_delta_ota` :
-    1. Compile and burn the firmware `idf.py -p PORT -b BAUD flash`
+    1. Flash the firmware `idf.py -p PORT -b BAUD flash`
     2. Run `idf.py -p PORT monitor` and note down the IP assigned to your ESP module. The default port is 80.
 
 6. After getting the IP address, send the patch binary through a HTTP Post request over cURL.
