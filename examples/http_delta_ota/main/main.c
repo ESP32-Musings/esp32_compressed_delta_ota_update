@@ -40,7 +40,7 @@ static esp_err_t patch_partition_write(char *recv_buf, size_t size, size_t patch
 
     if (offset == 0) {
         patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, PARTITION_LABEL_PATCH);
-        if (patch == NULL){
+        if (patch == NULL) {
             ESP_LOGE(TAG, "Partition Error: Could not find 'patch' partition");
             return ESP_FAIL;
         }
@@ -70,7 +70,7 @@ static esp_err_t ota_post_handler(httpd_req_t *req)
     int remaining = content_length;
     int64_t start = esp_timer_get_time();
 
-    while (remaining > 0){
+    while (remaining > 0) {
         if ((ret = httpd_req_recv(req, recv_buf, MIN(remaining, HTTP_CHUNK_SIZE))) <= 0) {
             if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
                 /* Retry receiving if timeout occurred */

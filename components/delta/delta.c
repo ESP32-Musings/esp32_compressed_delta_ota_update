@@ -55,7 +55,7 @@ static int delta_flash_write_dest(void *arg_p, const uint8_t *buf_p, size_t size
         return -DELTA_INVALID_BUF_SIZE;
     }
 
-    if (esp_ota_write(flash->ota_handle, buf_p, size) != ESP_OK){
+    if (esp_ota_write(flash->ota_handle, buf_p, size) != ESP_OK) {
         return -DELTA_WRITING_ERROR;
     }
 
@@ -157,6 +157,7 @@ static int delta_set_boot_partition(flash_mem_t *flash)
     if (esp_ota_set_boot_partition(flash->dest) != ESP_OK) {
         return -DELTA_TARGET_IMAGE_ERROR;
     }
+    free(flash);
 
     const esp_partition_t *boot_partition = esp_ota_get_boot_partition();
     ESP_LOGI(TAG, "Next Boot Partition: Subtype %d at Offset 0x%x", boot_partition->subtype, boot_partition->address);

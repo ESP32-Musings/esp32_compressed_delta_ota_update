@@ -61,8 +61,7 @@ typedef struct {
     uint8_t buffers[];
 #else
     /* Input buffer, then expansion window buffer */
-    uint8_t buffers[(1 << HEATSHRINK_DECODER_WINDOW_BITS(_))
-        + HEATSHRINK_DECODER_INPUT_BUFFER_SIZE(_)];
+    uint8_t buffers[2 * HEATSHRINK_DECODER_INPUT_BUFFER_SIZE(_)];
 #endif
 } heatshrink_decoder;
 
