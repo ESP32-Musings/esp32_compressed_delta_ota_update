@@ -127,17 +127,22 @@ static int delta_flash_seek_src(void *arg_p, int offset)
     return DELTA_OK;
 }
 
-static int delta_init_flash_mem(flash_mem_t *flash)
+static int delta_init_flash_mem(flash_mem_t *flash, const delta_opts_t *opts)
 {
     if (!flash) {
         return -DELTA_PARTITION_ERROR;
     }
 
-    flash->src = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, PARTITION_LABEL_SRC);
-    flash->dest = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_1, PARTITION_LABEL_DEST);
-    flash->patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, PARTITION_LABEL_PATCH);
+    flash->src = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, opts->src);
+    flash->dest = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, opts->dest);
+    flash->patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, opts->patch);
 
     if (flash->src == NULL || flash->dest == NULL || flash->patch == NULL) {
+        return -DELTA_PARTITION_ERROR;
+    }
+
+    if (flash->src->subtype >= ESP_PARTITION_SUBTYPE_APP_OTA_MAX ||
+        flash->dest->subtype >= ESP_PARTITION_SUBTYPE_APP_OTA_MAX) {
         return -DELTA_PARTITION_ERROR;
     }
 
@@ -166,8 +171,14 @@ static int delta_set_boot_partition(flash_mem_t *flash)
     return DELTA_OK;
 }
 
-int delta_check_and_apply(int patch_size)
+int delta_check_and_apply(int patch_size, const delta_opts_t *opts)
 {
+    static const delta_opts_t DEFAULT_DELTA_OPTS = {
+        .src = DEFAULT_PARTITION_LABEL_SRC,
+        .dest = DEFAULT_PARTITION_LABEL_DEST,
+        .patch = DEFAULT_PARTITION_LABEL_PATCH
+    };
+
     ESP_LOGI(TAG, "Initializing delta update...");
 
     flash_mem_t *flash = NULL;
@@ -181,7 +192,11 @@ int delta_check_and_apply(int patch_size)
             return -DELTA_OUT_OF_MEMORY;
         }
 
-        ret = delta_init_flash_mem(flash);
+        if (!opts) {
+            opts = &DEFAULT_DELTA_OPTS;
+        }
+
+        ret = delta_init_flash_mem(flash, opts);
         if (ret) {
             return ret;
         }

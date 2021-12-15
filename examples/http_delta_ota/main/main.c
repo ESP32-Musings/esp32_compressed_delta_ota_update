@@ -33,27 +33,27 @@ static void reboot(void)
     esp_restart();
 }
 
-static esp_err_t patch_partition_write(char *recv_buf, size_t size, size_t patch_size)
+static esp_err_t patch_partition_write(char *recv_buf, size_t size, size_t patch_size, const char *patch_partition)
 {
     static size_t offset = 0;
     static const esp_partition_t *patch = NULL;
 
     if (offset == 0) {
-        patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, PARTITION_LABEL_PATCH);
+        patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, patch_partition);
         if (patch == NULL) {
-            ESP_LOGE(TAG, "Partition Error: Could not find 'patch' partition");
+            ESP_LOGE(TAG, "Partition Error: Could not find '%s' partition", patch_partition);
             return ESP_FAIL;
         }
 
         size_t patch_page_size = (patch_size + PARTITION_PAGE_SIZE) - (patch_size % PARTITION_PAGE_SIZE);
         if (esp_partition_erase_range(patch, offset, patch_page_size) != ESP_OK) {
-            ESP_LOGE(TAG, "Partition Error: Could not erase 'patch' region!");
+            ESP_LOGE(TAG, "Partition Error: Could not erase '%s' region!", patch_partition);
             return ESP_FAIL;
         }
     }
 
     if (esp_partition_write(patch, offset, recv_buf, size) != ESP_OK) {
-        ESP_LOGE(TAG, "Partition Error: Could not write to 'patch' region!");
+        ESP_LOGE(TAG, "Partition Error: Could not write to '%s' region!", patch_partition);
         return ESP_FAIL;
     };
 
@@ -74,6 +74,8 @@ static esp_err_t ota_post_handler(httpd_req_t *req)
     int remaining = content_length;
     int64_t start = esp_timer_get_time();
 
+    delta_opts_t opts = INIT_DEFAULT_DELTA_OPTS();
+
     while (remaining > 0) {
         if ((ret = httpd_req_recv(req, recv_buf, MIN(remaining, HTTP_CHUNK_SIZE))) <= 0) {
             if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
@@ -83,7 +85,7 @@ static esp_err_t ota_post_handler(httpd_req_t *req)
             goto ERROR;
         }
 
-        if (patch_partition_write(recv_buf, ret, content_length) != ESP_OK) {
+        if (patch_partition_write(recv_buf, ret, content_length, opts.patch) != ESP_OK) {
             goto ERROR;
         };
 
@@ -98,7 +100,7 @@ static esp_err_t ota_post_handler(httpd_req_t *req)
     ESP_LOGI(TAG, "Ready to apply patch...");
 
     ESP_LOGI(TAG, "---------------- detools ----------------");
-    int err = delta_check_and_apply(content_length);
+    int err = delta_check_and_apply(content_length, &opts);
     if (err) {
         ESP_LOGE(TAG, "Error: %s", delta_error_as_string(err));
         goto ERROR;
