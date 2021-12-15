@@ -64,6 +64,10 @@ static esp_err_t patch_partition_write(char *recv_buf, size_t size, size_t patch
 static esp_err_t ota_post_handler(httpd_req_t *req)
 {
     char *recv_buf = calloc(HTTP_CHUNK_SIZE, sizeof(char));
+    if (!recv_buf) {
+        return ESP_FAIL;
+    }
+
     int ret, content_length = req->content_len;
     ESP_LOGI(TAG, "Content length: %d B", content_length);
 
