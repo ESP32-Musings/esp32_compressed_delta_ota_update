@@ -170,12 +170,17 @@ int delta_check_and_apply(int patch_size)
 {
     ESP_LOGI(TAG, "Initializing delta update...");
 
-    flash_mem_t *flash = calloc(1, sizeof(flash_mem_t));
+    flash_mem_t *flash = NULL;
     int ret = 0;
 
     if (patch_size < 0) {
         return patch_size;
     } else if (patch_size > 0) {
+        flash = calloc(1, sizeof(flash_mem_t));
+        if (!flash) {
+            return -DELTA_OUT_OF_MEMORY;
+        }
+
         ret = delta_init_flash_mem(flash);
         if (ret) {
             return ret;
