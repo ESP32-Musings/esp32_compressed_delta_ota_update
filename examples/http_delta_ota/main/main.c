@@ -33,34 +33,6 @@ static void reboot(void)
     esp_restart();
 }
 
-static esp_err_t patch_partition_write(char *recv_buf, size_t size, size_t patch_size, const char *patch_partition)
-{
-    static size_t offset = 0;
-    static const esp_partition_t *patch = NULL;
-
-    if (offset == 0) {
-        patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, patch_partition);
-        if (patch == NULL) {
-            ESP_LOGE(TAG, "Partition Error: Could not find '%s' partition", patch_partition);
-            return ESP_FAIL;
-        }
-
-        size_t patch_page_size = (patch_size + PARTITION_PAGE_SIZE) - (patch_size % PARTITION_PAGE_SIZE);
-        if (esp_partition_erase_range(patch, offset, patch_page_size) != ESP_OK) {
-            ESP_LOGE(TAG, "Partition Error: Could not erase '%s' region!", patch_partition);
-            return ESP_FAIL;
-        }
-    }
-
-    if (esp_partition_write(patch, offset, recv_buf, size) != ESP_OK) {
-        ESP_LOGE(TAG, "Partition Error: Could not write to '%s' region!", patch_partition);
-        return ESP_FAIL;
-    };
-
-    offset += size;
-    return ESP_OK;
-}
-
 static esp_err_t ota_post_handler(httpd_req_t *req)
 {
     char *recv_buf = calloc(HTTP_CHUNK_SIZE, sizeof(char));
@@ -76,6 +48,9 @@ static esp_err_t ota_post_handler(httpd_req_t *req)
 
     delta_opts_t opts = INIT_DEFAULT_DELTA_OPTS();
 
+    delta_partition_writer_t writer;
+
+    size_t count = 0;
     while (remaining > 0) {
         if ((ret = httpd_req_recv(req, recv_buf, MIN(remaining, HTTP_CHUNK_SIZE))) <= 0) {
             if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
@@ -85,10 +60,15 @@ static esp_err_t ota_post_handler(httpd_req_t *req)
             goto ERROR;
         }
 
-        if (patch_partition_write(recv_buf, ret, content_length, opts.patch) != ESP_OK) {
+        if (count == 0 && delta_partition_init(&writer, opts.patch, content_length) != ESP_OK) {
+            goto ERROR;
+        }
+
+        if (delta_partition_write(&writer, recv_buf, ret) != ESP_OK) {
             goto ERROR;
         };
 
+        count += ret;
         remaining -= ret;
         memset(recv_buf, 0x00, HTTP_CHUNK_SIZE);
         ESP_LOGI(TAG, "Download Progress: %0.2f %%", ((float)(content_length - remaining) / content_length) * 100);
@@ -98,6 +78,7 @@ static esp_err_t ota_post_handler(httpd_req_t *req)
 
     ESP_LOGI(TAG, "Time taken to download patch: %0.3f s", (float)(esp_timer_get_time() - start) / 1000000L);
     ESP_LOGI(TAG, "Ready to apply patch...");
+    ESP_LOGI(TAG, "Patch size: %uKB", count/1024);
 
     ESP_LOGI(TAG, "---------------- detools ----------------");
     int err = delta_check_and_apply(content_length, &opts);

@@ -38,6 +38,7 @@
 #define DELTA_PARTITION_ERROR                            36
 #define DELTA_TARGET_IMAGE_ERROR                         37
 #define DELTA_INVALID_ARGUMENT_ERROR                     38
+#define DELTA_OUT_OF_BOUNDS_ERROR                        39
 
 typedef struct {
     const char *src;
@@ -51,6 +52,16 @@ typedef struct {
     .patch = DEFAULT_PARTITION_LABEL_PATCH \
 }
 
+typedef struct {
+    const char *name;
+    const void *patch;
+    int offset;
+    int size;
+} delta_partition_writer_t;
+
+int delta_partition_init(delta_partition_writer_t *writer, const char *partition, int patch_size);
+
+int delta_partition_write(delta_partition_writer_t *writer, const char *buf, int size);
 
 /**
  * Checks if there is patch in the patch partition
