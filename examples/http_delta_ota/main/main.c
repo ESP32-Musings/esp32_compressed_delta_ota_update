@@ -88,8 +88,8 @@ static esp_err_t ota_post_handler(httpd_req_t *req)
     }
 
     httpd_resp_send(req, NULL, 0);
+    ESP_ERROR_CHECK(example_disconnect());
     reboot();
-    return ESP_OK;
 
 ERROR:
     httpd_resp_send_500(req);

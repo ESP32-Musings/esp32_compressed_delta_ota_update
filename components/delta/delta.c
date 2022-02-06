@@ -1,18 +1,10 @@
 /*
- * Copyright (c) 2016 Intel Corporation
+ * SPDX-FileCopyrightText: 2016 Intel Corporation
+ *                         2020 Thesis projects
  *
- * SPDX-License-Identifier: 0
+ * SPDX-License-Identifier: Apache 2.0 License
  *
- *
- * Copyright (c) 2020 Thesis projects
- *
- * SPDX-License-Identifier: Apache-2.0
- *
- *
- * Modified by: Laukik Hase
- *
- * Added Compatibility with ESP-IDF
- *
+ * SPDX-FileContributor: 2021 Laukik Hase
  */
 
 #include <stdlib.h>
@@ -133,8 +125,8 @@ static int delta_init_flash_mem(flash_mem_t *flash, const delta_opts_t *opts)
         return -DELTA_PARTITION_ERROR;
     }
 
-    flash->src = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, opts->src);
-    flash->dest = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, opts->dest);
+    flash->src = esp_ota_get_running_partition();
+    flash->dest = esp_ota_get_next_update_partition(NULL);
     flash->patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, opts->patch);
 
     if (flash->src == NULL || flash->dest == NULL || flash->patch == NULL) {

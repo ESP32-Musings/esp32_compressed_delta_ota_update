@@ -1,25 +1,17 @@
 /*
- * Copyright (c) 2016 Intel Corporation
+ * SPDX-FileCopyrightText: 2016 Intel Corporation
+ *                         2020 Thesis projects
  *
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-License-Identifier: Apache 2.0 License
  *
- *
- * Copyright (c) 2020 Thesis projects
- *
- * SPDX-License-Identifier: Apache-2.0
- *
- *
- * Modified by: Laukik Hase
- *
- * Added Compatibility with ESP-IDF
- *
+ * SPDX-FileContributor: 2021 Laukik Hase
  */
 
 #pragma once
 
 /* PARTITION LABELS */
-#define DEFAULT_PARTITION_LABEL_SRC "ota_0"
-#define DEFAULT_PARTITION_LABEL_DEST "ota_1"
+#define DEFAULT_PARTITION_LABEL_SRC "factory"
+#define DEFAULT_PARTITION_LABEL_DEST "ota_0"
 #define DEFAULT_PARTITION_LABEL_PATCH "patch"
 
 /* PAGE SIZE */
