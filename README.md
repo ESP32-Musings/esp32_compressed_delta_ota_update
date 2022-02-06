@@ -9,7 +9,7 @@ The project aims at enabling firmware update of ESP32 Over-the-Air with compress
 ### Hardware Required
 
 To run the OTA demo, you need an ESP32 dev board (e.g. ESP32-WROVER Kit) or ESP32 core board (e.g. ESP32-DevKitC).
-You can also try running on ESP32-S2 or ESP32-C3 dev boards and let me know how it worked out.
+You can also try running on ESP32-S2, ESP32-C3 or ESP32-S3 dev boards and let me know how it worked out.
 
 ### Prerequisites
 
@@ -21,48 +21,36 @@ You can also try running on ESP32-S2 or ESP32-C3 dev boards and let me know how 
 
   Binary delta encoding in Python 3.6+. You can follow the instructions [here](https://pypi.org/project/detools/) for installation.
 
-* **Partition Tool (parttool.py)**
-
-  [parttool.py](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/partition-tables.html#command-line-interface) comes pre-installed with ESP-IDF; it can be used after the ESP-IDF python venv is initialised - See [here](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/#step-4-set-up-the-environment-variables).
-
-
 ## Usage
 
-1. Build the example `examples/http_delta_ota` and flash the partition table `partitions.csv`.
+1. Build the example `examples/http_delta_ota` - `idf.py build`. You can use the binary built here as the `base_binary`.
 
-   `idf.py build && idf.py partition_table-flash`
+   For example usage, a `while(1)` loop printing 'Hello World!' was added to this example to create the `updated_binary`.
 
 2. To generate the patch, we need 2 application binaries, namely `base_binary` and `updated_binary`.
 
    `detools create_patch -c heatshrink base_binary.bin updated_binary.bin patch.bin`
 
-3. Currently, patch application demo is supported only for the `ota_0` partition.  So, we need to flash the base binary to the `ota_0` partition.
-
-   `parttool.py --port "/dev/ttyUSB0"  --baud 2000000 write_partition --partition-name=ota_0 --input="base_binary.bin"`
-
-4. Open the project configuration menu (`idf.py menuconfig`) go to `Example Connection Configuration` ->
+3. Open the project configuration menu (`idf.py menuconfig`) go to `Example Connection Configuration` ->
     1. WiFi SSID: WiFi network to which your PC is also connected to.
     2. WiFi Password: WiFi password
 
-5. In order to test the OTA demo -> `examples/http_delta_ota` :
-    1. Flash the firmware `idf.py -p PORT -b BAUD flash`
+4. In order to test the OTA demo -> `examples/http_delta_ota` :
+    1. Flash the firmware `idf.py -p PORT -b BAUD flash`.
     2. Run `idf.py -p PORT monitor` and note down the IP assigned to your ESP module. The default port is 80.
 
-6. After getting the IP address, send the patch binary through a HTTP Post request over cURL.
+5. After getting the IP address, send the patch binary through a HTTP Post request over cURL.
 
-   `curl -v -X POST --data-binary @- < patch.bin 192.168.224.196:80/ota`
+   `curl -v -X POST --data-binary @- < patch.bin 192.168.201.9:80/ota`
 
 ## Demo Results
 
-  - Base binary: `assets/nvs_rw_value.bin` ([Example Link](https://github.com/espressif/esp-idf/tree/master/examples/storage/nvs_rw_value))
-  - Updated binary: `assets/nvs_rw_blob.bin` ([Example Link](https://github.com/espressif/esp-idf/tree/master/examples/storage/nvs_rw_blob))
-  - Patch binary: `assets/patch_nvs.bin`
-  - After successfully patching and rebooting, press the EN button on your dev board to reboot it and increment the `Restart counter` variable.
+  - Base binary: `assets/v1.bin`
+  - Updated binary: `assets/v2.bin`
+  - Patch binary: `assets/patch_1_2.bin`
+  - After successfully patching and rebooting, you can see the `Hello World` logs.
 
-  <p align="center">
-      <img width="1024" height="576" src="assets/ota_demo.gif">
-  </p>
-
+https://user-images.githubusercontent.com/42297532/152674614-2f4d3b9d-08d2-45bc-a3b6-29f33a191fd7.mp4
 
 ## Experiments
 
@@ -104,24 +92,25 @@ You can also try running on ESP32-S2 or ESP32-C3 dev boards and let me know how 
 
 - [x] Experiments with more test scenarios, especially with bigger binaries
 
-- [ ] Add complete workflow example
+- [x] Add complete workflow example
   - Currently patch is applied to the `ota_0` partition rather than the `factory`
 
 - [ ] Optimize Heatshrink compression parameters
   - Currently running on low memory usage mode (8, 7) and static allocation
+  - Memory usage and app binary size analysis
 
 - [ ] Binary patch with LZMA compression in detools
   - LZMA is memory-heavy but will provide a greater compression ratio for the patch
-
-- [ ] Managing Flash wear and tear (e.g. Wear Levelling)
 
 ## Acknowledgements & Resources
 
 - detool: Binary delta encoding in Python 3 and C 🡒 [Source](https://github.com/eerimoq/detools) | [Docs](https://detools.readthedocs.io/en/latest/)
 - heatshrink: An Embedded Data Compression Library 🡒 [Source](https://github.com/atomicobject/heatshrink) | [Blog](https://spin.atomicobject.com/2013/03/14/heatshrink-embedded-data-compression/)
 - Delta updates for embedded systems 🡒 [Source](https://gitlab.endian.se/thesis-projects/delta-updates-for-embedded-systems) | [Docs](https://odr.chalmers.se/bitstream/20.500.12380/302598/1/21-17%20Lindh.pdf)
-
+- bspatch for ESP32 🡒 [Source](https://github.com/Blockstream/esp32_bsdiff)
 
 ## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
+
+**Note**: The `delta` component is licensed under the Apache-2.0 License. Please see `components/delta/LICENSE` for more information.
