@@ -127,17 +127,22 @@ static int delta_flash_seek_src(void *arg_p, int offset)
     return DELTA_OK;
 }
 
-static int delta_init_flash_mem(flash_mem_t *flash)
+static int delta_init_flash_mem(flash_mem_t *flash, const delta_opts_t *opts)
 {
     if (!flash) {
         return -DELTA_PARTITION_ERROR;
     }
 
-    flash->src = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, PARTITION_LABEL_SRC);
-    flash->dest = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_1, PARTITION_LABEL_DEST);
-    flash->patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, PARTITION_LABEL_PATCH);
+    flash->src = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, opts->src);
+    flash->dest = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, opts->dest);
+    flash->patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_SPIFFS, opts->patch);
 
     if (flash->src == NULL || flash->dest == NULL || flash->patch == NULL) {
+        return -DELTA_PARTITION_ERROR;
+    }
+
+    if (flash->src->subtype >= ESP_PARTITION_SUBTYPE_APP_OTA_MAX ||
+        flash->dest->subtype >= ESP_PARTITION_SUBTYPE_APP_OTA_MAX) {
         return -DELTA_PARTITION_ERROR;
     }
 
@@ -166,17 +171,78 @@ static int delta_set_boot_partition(flash_mem_t *flash)
     return DELTA_OK;
 }
 
-int delta_check_and_apply(int patch_size)
+int delta_partition_init(delta_partition_writer_t *writer, const char *partition, int patch_size)
 {
+    if (writer == NULL || partition == NULL) {
+        return -DELTA_INVALID_ARGUMENT_ERROR;
+    }
+
+    const esp_partition_t *patch = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
+        ESP_PARTITION_SUBTYPE_DATA_SPIFFS, partition);
+    if (patch == NULL) {
+        ESP_LOGE(TAG, "Partition Error: Could not find '%s' partition", partition);
+        return ESP_FAIL;
+    }
+
+    size_t patch_page_size = (patch_size + PARTITION_PAGE_SIZE) - (patch_size % PARTITION_PAGE_SIZE);
+    if (esp_partition_erase_range(patch, 0, patch_page_size) != ESP_OK) {
+        ESP_LOGE(TAG, "Partition Error: Could not erase '%s' region!", partition);
+        return ESP_FAIL;
+    }
+
+    writer->name = partition;
+    writer->patch = patch;
+    writer->size = patch_size;
+    writer->offset = 0;
+
+    return ESP_OK;
+}
+
+int delta_partition_write(delta_partition_writer_t *writer, const char *buf, int size)
+{
+    if (writer == NULL || buf == NULL) {
+        return -DELTA_INVALID_ARGUMENT_ERROR;
+    }
+
+    if (writer->offset >= writer->size) {
+        return -DELTA_OUT_OF_BOUNDS_ERROR;
+    }
+
+    if (esp_partition_write(writer->patch, writer->offset, buf, size) != ESP_OK) {
+        ESP_LOGE(TAG, "Partition Error: Could not write to '%s' region!", writer->name);
+        return ESP_FAIL;
+    };
+
+    writer->offset += size;
+    return ESP_OK;
+}
+
+int delta_check_and_apply(int patch_size, const delta_opts_t *opts)
+{
+    static const delta_opts_t DEFAULT_DELTA_OPTS = {
+        .src = DEFAULT_PARTITION_LABEL_SRC,
+        .dest = DEFAULT_PARTITION_LABEL_DEST,
+        .patch = DEFAULT_PARTITION_LABEL_PATCH
+    };
+
     ESP_LOGI(TAG, "Initializing delta update...");
 
-    flash_mem_t *flash = calloc(1, sizeof(flash_mem_t));
+    flash_mem_t *flash = NULL;
     int ret = 0;
 
     if (patch_size < 0) {
         return patch_size;
     } else if (patch_size > 0) {
-        ret = delta_init_flash_mem(flash);
+        flash = calloc(1, sizeof(flash_mem_t));
+        if (!flash) {
+            return -DELTA_OUT_OF_MEMORY;
+        }
+
+        if (!opts) {
+            opts = &DEFAULT_DELTA_OPTS;
+        }
+
+        ret = delta_init_flash_mem(flash, opts);
         if (ret) {
             return ret;
         }
