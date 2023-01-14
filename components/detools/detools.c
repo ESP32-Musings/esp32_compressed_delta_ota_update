@@ -259,15 +259,30 @@ static int patch_reader_heatshrink_decompress(
                                  &heatshrink_p->window_sz2,
                                  &heatshrink_p->lookahead_sz2);
 
-        if ((heatshrink_p->window_sz2 != HEATSHRINK_STATIC_WINDOW_BITS)
-                || (heatshrink_p->lookahead_sz2 != HEATSHRINK_STATIC_LOOKAHEAD_BITS)) {
+#if HEATSHRINK_DYNAMIC_ALLOC == 1
+        heatshrink_p->decoder_p = heatshrink_decoder_alloc(
+            256,
+            heatshrink_p->window_sz2,
+            heatshrink_p->lookahead_sz2);
+
+        if (heatshrink_p->decoder_p == NULL) {
             return (-DETOOLS_HEATSHRINK_HEADER);
         }
+#else
+        if ((heatshrink_p->window_sz2 != HEATSHRINK_STATIC_WINDOW_BITS)
+            || (heatshrink_p->lookahead_sz2 != HEATSHRINK_STATIC_LOOKAHEAD_BITS)) {
+            return (-DETOOLS_HEATSHRINK_HEADER);
+        }
+
+        heatshrink_p->decoder_p = &heatshrink_p->decoder;
+        heatshrink_decoder_reset(heatshrink_p->decoder_p);
+#endif
+
     }
 
     while (1) {
         /* Get available data. */
-        pres = heatshrink_decoder_poll(&heatshrink_p->decoder,
+        pres = heatshrink_decoder_poll(heatshrink_p->decoder_p,
                                        buf_p,
                                        left,
                                        &size);
@@ -287,7 +302,7 @@ static int patch_reader_heatshrink_decompress(
         res = chunk_get(self_p->patch_chunk_p, &byte);
 
         if (res == 0) {
-            sres = heatshrink_decoder_sink(&heatshrink_p->decoder,
+            sres = heatshrink_decoder_sink(heatshrink_p->decoder_p,
                                            &byte,
                                            sizeof(byte),
                                            &size);
@@ -317,7 +332,15 @@ static int patch_reader_heatshrink_destroy(
 
     heatshrink_p = &self_p->compression.heatshrink;
 
-    fres = heatshrink_decoder_finish(&heatshrink_p->decoder);
+    if (heatshrink_p->decoder_p == NULL) {
+        return (0);
+    }
+
+    fres = heatshrink_decoder_finish(heatshrink_p->decoder_p);
+
+#if HEATSHRINK_DYNAMIC_ALLOC == 1
+    heatshrink_decoder_free(heatshrink_p->decoder_p);
+#endif
 
     if (fres == HSDR_FINISH_DONE) {
         return (0);
@@ -334,7 +357,7 @@ static int patch_reader_heatshrink_init(
     heatshrink_p = &self_p->compression.heatshrink;
     heatshrink_p->window_sz2 = -1;
     heatshrink_p->lookahead_sz2 = -1;
-    heatshrink_decoder_reset(&heatshrink_p->decoder);
+    heatshrink_p->decoder_p = NULL;
     self_p->destroy = patch_reader_heatshrink_destroy;
     self_p->decompress = patch_reader_heatshrink_decompress;
 
@@ -758,14 +781,14 @@ static int patch_reader_crle_decompress(
 
         case detools_crle_state_scattered_data_t:
             res = patch_reader_crle_decompress_scattered_data(self_p,
-                    crle_p,
-                    buf_p,
-                    size_p);
+                                                              crle_p,
+                                                              buf_p,
+                                                              size_p);
             break;
 
         case detools_crle_state_repeated_repetitions_t:
             res = patch_reader_crle_decompress_repeated_repetitions(self_p,
-                    crle_p);
+                                                                    crle_p);
             break;
 
         case detools_crle_state_repeated_data_t:
@@ -774,8 +797,8 @@ static int patch_reader_crle_decompress(
 
         case detools_crle_state_repeated_data_read_t:
             res = patch_reader_crle_decompress_repeated_data_read(crle_p,
-                    buf_p,
-                    size_p);
+                                                                  buf_p,
+                                                                  size_p);
             break;
 
         default:
@@ -889,8 +912,10 @@ static int patch_reader_dump(struct detools_apply_patch_patch_reader_t *self_p,
 #endif
 
 #if DETOOLS_CONFIG_COMPRESSION_HEATSHRINK == 1
+#    if HEATSHRINK_DYNAMIC_ALLOC == 0
     case COMPRESSION_HEATSHRINK:
         break;
+#    endif
 #endif
 
     default:
@@ -932,10 +957,14 @@ static int patch_reader_restore(struct detools_apply_patch_patch_reader_t *self_
 #endif
 
 #if DETOOLS_CONFIG_COMPRESSION_HEATSHRINK == 1
+#    if HEATSHRINK_DYNAMIC_ALLOC == 0
     case COMPRESSION_HEATSHRINK:
+        self_p->compression.heatshrink.decoder_p =
+            &self_p->compression.heatshrink.decoder;
         self_p->destroy = patch_reader_heatshrink_destroy;
         self_p->decompress = patch_reader_heatshrink_decompress;
         break;
+#    endif
 #endif
 
     default:
@@ -2113,8 +2142,8 @@ static int in_place_callbacks_process(
 
         if (res == 0) {
             res = detools_apply_patch_in_place_process(apply_patch_p,
-                    &chunk[0],
-                    chunk_size);
+                                                       &chunk[0],
+                                                       chunk_size);
             patch_offset += chunk_size;
         } else {
             res = -DETOOLS_IO_FAILED;
@@ -2131,13 +2160,13 @@ static int in_place_callbacks_process(
 }
 
 int detools_apply_patch_in_place_callbacks(detools_mem_read_t mem_read,
-        detools_mem_write_t mem_write,
-        detools_mem_erase_t mem_erase,
-        detools_step_set_t step_set,
-        detools_step_get_t step_get,
-        detools_read_t patch_read,
-        size_t patch_size,
-        void *arg_p)
+                                           detools_mem_write_t mem_write,
+                                           detools_mem_erase_t mem_erase,
+                                           detools_step_set_t step_set,
+                                           detools_step_get_t step_get,
+                                           detools_read_t patch_read,
+                                           size_t patch_size,
+                                           void *arg_p)
 {
     int res;
     struct detools_apply_patch_in_place_t apply_patch;
@@ -2246,13 +2275,13 @@ static int file_io_init(struct file_io_t *self_p,
 
     return (res);
 
-err3:
+ err3:
     fclose(self_p->fpatch_p);
 
-err2:
+ err2:
     fclose(self_p->fto_p);
 
-err1:
+ err1:
     fclose(self_p->ffrom_p);
 
     return (res);
@@ -2365,7 +2394,7 @@ int detools_apply_patch_filenames(const char *from_p,
 
     return (file_io_cleanup(&file_io));
 
-err1:
+ err1:
     (void)file_io_cleanup(&file_io);
 
     return (res);
@@ -2411,10 +2440,10 @@ static int in_place_file_io_init(struct in_place_file_io_t *self_p,
 
     return (res);
 
-err2:
+ err2:
     fclose(self_p->fpatch_p);
 
-err1:
+ err1:
     fclose(self_p->fmemory_p);
 
     return (res);
@@ -2497,9 +2526,9 @@ static int in_place_file_io_cleanup(struct in_place_file_io_t *self_p)
 }
 
 int detools_apply_patch_in_place_filenames(const char *memory_p,
-        const char *patch_p,
-        detools_step_set_t step_set,
-        detools_step_get_t step_get)
+                                           const char *patch_p,
+                                           detools_step_set_t step_set,
+                                           detools_step_get_t step_get)
 {
     int res;
     struct in_place_file_io_t file_io;
@@ -2515,13 +2544,13 @@ int detools_apply_patch_in_place_filenames(const char *memory_p,
     }
 
     res = detools_apply_patch_in_place_callbacks(in_place_file_io_mem_read,
-            in_place_file_io_mem_write,
-            in_place_file_io_mem_erase,
-            step_set,
-            step_get,
-            file_io_patch_read,
-            patch_size,
-            &file_io);
+                                                 in_place_file_io_mem_write,
+                                                 in_place_file_io_mem_erase,
+                                                 step_set,
+                                                 step_get,
+                                                 file_io_patch_read,
+                                                 patch_size,
+                                                 &file_io);
 
     if (res != 0) {
         goto err1;
@@ -2529,7 +2558,7 @@ int detools_apply_patch_in_place_filenames(const char *memory_p,
 
     return (in_place_file_io_cleanup(&file_io));
 
-err1:
+ err1:
     (void)in_place_file_io_cleanup(&file_io);
 
     return (res);
