@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <inttypes.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -157,7 +158,7 @@ static int delta_set_boot_partition(flash_mem_t *flash)
     free(flash);
 
     const esp_partition_t *boot_partition = esp_ota_get_boot_partition();
-    ESP_LOGI(TAG, "Next Boot Partition: Subtype %d at Offset 0x%x", boot_partition->subtype, boot_partition->address);
+    ESP_LOGI(TAG, "Next Boot Partition: Subtype %d at Offset 0x%" PRIx32, boot_partition->subtype, boot_partition->address);
     ESP_LOGI(TAG, "Ready to reboot!!!");
 
     return DELTA_OK;
