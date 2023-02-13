@@ -1816,6 +1816,7 @@ static int in_place_process_dfpatch_size(
 }
 
 static int in_place_process_size(struct detools_apply_patch_in_place_t *self_p,
+    ESP_LOGW(TAG, "In %s", __func__);
                                  enum detools_apply_patch_state_t next_state)
 {
     int res;
