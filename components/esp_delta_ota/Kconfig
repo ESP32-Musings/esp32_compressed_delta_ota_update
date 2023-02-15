@@ -1,0 +1,23 @@
+menu "DETOOLS Configuration"
+
+    config DETOOLS_CONFIG_FILE_IO
+        bool "DETOOLS File I/O"
+        default n
+
+    config DETOOLS_CONFIG_COMPRESSION_NONE
+        bool "DETOOLS no compression"
+        default n
+
+    config DETOOLS_CONFIG_COMPRESSION_LZMA
+        bool "DETOOLS LZMA compression"
+        default n
+
+    config DETOOLS_CONFIG_COMPRESSION_CRLE
+        bool "DETOOLS CRLE compression"
+        default n
+
+    config DETOOLS_CONFIG_COMPRESSION_HEATSHRINK
+        bool "DETOOLS Heatshrink compression"
+        default y
+
+endmenu

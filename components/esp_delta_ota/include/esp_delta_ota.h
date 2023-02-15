@@ -9,10 +9,13 @@
 
 #pragma once
 
+#include "esp_ota_ops.h"
+#include "detools_config.h"
+#include "detools.h"
+
 /* PARTITION LABELS */
 #define DEFAULT_PARTITION_LABEL_SRC "factory"
 #define DEFAULT_PARTITION_LABEL_DEST "ota_0"
-#define DEFAULT_PARTITION_LABEL_PATCH "patch"
 
 /* PAGE SIZE */
 #define PARTITION_PAGE_SIZE (0x1000)
@@ -32,41 +35,25 @@
 #define DELTA_INVALID_ARGUMENT_ERROR                     38
 #define DELTA_OUT_OF_BOUNDS_ERROR                        39
 
+typedef void *esp_delta_ota_handle_t;
+
 typedef struct {
     const char *src;
     const char *dest;
-    const char *patch;
 } delta_opts_t;
+
+typedef struct flash_mem {
+    const esp_partition_t *src;
+    const esp_partition_t *dest;
+    size_t src_offset;
+    esp_ota_handle_t ota_handle;
+} flash_mem_t;
+
 
 #define INIT_DEFAULT_DELTA_OPTS() { \
     .src = DEFAULT_PARTITION_LABEL_SRC, \
     .dest = DEFAULT_PARTITION_LABEL_DEST, \
-    .patch = DEFAULT_PARTITION_LABEL_PATCH \
 }
-
-typedef struct {
-    const char *name;
-    const void *patch;
-    int offset;
-    int size;
-} delta_partition_writer_t;
-
-int delta_partition_init(delta_partition_writer_t *writer, const char *partition, int patch_size);
-
-int delta_partition_write(delta_partition_writer_t *writer, const char *buf, int size);
-
-/**
- * Checks if there is patch in the patch partition
- * and applies that patch if it exists. Then restarts
- * the device and boots from the new image.
- *
- * @param[in] patch_size size of the patch.
- * @param[in] opts options for applying the patch.
- *
- * @return zero(0) if no patch or a negative error
- * code.
- */
-int delta_check_and_apply(int patch_size, const delta_opts_t *opts);
 
 /**
  * Get the error string for given error code.
@@ -76,3 +63,21 @@ int delta_check_and_apply(int patch_size, const delta_opts_t *opts);
  * @return Error string.
  */
 const char *delta_error_as_string(int error);
+
+
+typedef int (*read_cb_t)(void *arg_p, uint8_t *buf_p, size_t size);
+
+typedef int (*seek_cb_t)(void *arg_p, int offset);
+
+typedef int (*write_cb_t)(void *arg_p, const uint8_t *buf_p, size_t size);
+
+int esp_delta_ota_init(flash_mem_t *flash, delta_opts_t *opts);
+
+esp_delta_ota_handle_t delta_ota_set_cfg(flash_mem_t *flash, read_cb_t read_cb, seek_cb_t seek_cb, write_cb_t write_cb);
+
+int esp_delta_ota_feed_patch(esp_delta_ota_handle_t handle, const uint8_t *buf, int size);
+
+int esp_delta_ota_finish(esp_delta_ota_handle_t handle);
+
+void esp_delta_ota_deinit(esp_delta_ota_handle_t handle);
+
