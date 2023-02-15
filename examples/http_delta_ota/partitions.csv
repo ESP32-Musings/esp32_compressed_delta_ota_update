@@ -5,4 +5,3 @@ phy_init, data, phy,      ,         4K
 factory,  app,  factory,  ,         1024K
 ota_0,    app,  ota_0,    ,         1280K
 ota_1,    app,  ota_1,    ,         1280K
-patch,    data, spiffs,   ,         256K

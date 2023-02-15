@@ -20,12 +20,74 @@
 
 #include "esp_partition.h"
 
-#include "esp_http_server.h"
-#include "delta.h"
+#include "esp_http_client.h"
+#include "esp_delta_ota.h"
 
 #define HTTP_CHUNK_SIZE (2048)
+#define BUFFSIZE 1024
 
 static const char *TAG = "http_delta_ota";
+
+static char ota_write_data[BUFFSIZE + 1] = { 0 };
+extern const uint8_t server_cert_pem_start[] asm("_binary_ca_cert_pem_start");
+extern const uint8_t server_cert_pem_end[] asm("_binary_ca_cert_pem_end");
+
+static int write_cb(void *arg_p, const uint8_t *buf_p, size_t size)
+{
+    flash_mem_t *flash;
+    flash = (flash_mem_t *)arg_p;
+
+    if (!flash) {
+        return -DELTA_CASTING_ERROR;
+    }
+    if (size <= 0) {
+        return -DELTA_INVALID_BUF_SIZE;
+    }
+    if (esp_ota_write(flash->ota_handle, buf_p, size) != ESP_OK) {
+        return -DELTA_WRITING_ERROR;
+    }
+    return DELTA_OK;
+}
+
+static int read_cb(void *arg_p, uint8_t *buf_p, size_t size)
+{
+    flash_mem_t *flash;
+    flash = (flash_mem_t *)arg_p;
+
+    if (!flash) {
+        return -DELTA_CASTING_ERROR;
+    }
+    if (size <= 0) {
+        return -DELTA_INVALID_BUF_SIZE;
+    }
+    if (esp_partition_read(flash->src, flash->src_offset, buf_p, size) != ESP_OK) {
+        return -DELTA_READING_SOURCE_ERROR;
+    }
+
+    flash->src_offset += size;
+    if (flash->src_offset >= flash->src->size) {
+        return -DELTA_OUT_OF_MEMORY;
+    }
+
+    return DELTA_OK;
+}
+
+static int seek_cb(void *arg_p, int offset)
+{
+    flash_mem_t *flash;
+    flash = (flash_mem_t *)arg_p;
+
+    if (!flash) {
+        return -DELTA_CASTING_ERROR;
+    }
+
+    flash->src_offset += offset;
+    if (flash->src_offset >= flash->src->size) {
+        return -DELTA_SEEKING_ERROR;
+    }
+
+    return DELTA_OK;
+}
 
 static void reboot(void)
 {
@@ -34,91 +96,90 @@ static void reboot(void)
     esp_restart();
 }
 
-static esp_err_t ota_post_handler(httpd_req_t *req)
+static void http_cleanup(esp_http_client_handle_t client)
 {
-    char *recv_buf = calloc(HTTP_CHUNK_SIZE, sizeof(char));
-    if (!recv_buf) {
-        return ESP_FAIL;
-    }
-
-    int ret, content_length = req->content_len;
-    ESP_LOGI(TAG, "Content length: %d B", content_length);
-
-    int remaining = content_length;
-    int64_t start = esp_timer_get_time();
-
-    delta_opts_t opts = INIT_DEFAULT_DELTA_OPTS();
-
-    delta_partition_writer_t writer;
-
-    size_t count = 0;
-    while (remaining > 0) {
-        if ((ret = httpd_req_recv(req, recv_buf, MIN(remaining, HTTP_CHUNK_SIZE))) <= 0) {
-            if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
-                /* Retry receiving if timeout occurred */
-                continue;
-            }
-            goto ERROR;
-        }
-
-        if (count == 0 && delta_partition_init(&writer, opts.patch, content_length) != ESP_OK) {
-            goto ERROR;
-        }
-
-        if (delta_partition_write(&writer, recv_buf, ret) != ESP_OK) {
-            goto ERROR;
-        };
-
-        count += ret;
-        remaining -= ret;
-        memset(recv_buf, 0x00, HTTP_CHUNK_SIZE);
-        ESP_LOGI(TAG, "Download Progress: %0.2f %%", ((float)(content_length - remaining) / content_length) * 100);
-    }
-
-    free(recv_buf);
-
-    ESP_LOGI(TAG, "Time taken to download patch: %0.3f s", (float)(esp_timer_get_time() - start) / 1000000L);
-    ESP_LOGI(TAG, "Ready to apply patch...");
-    ESP_LOGI(TAG, "Patch size: %uKB", count/1024);
-
-    ESP_LOGI(TAG, "---------------- detools ----------------");
-    int err = delta_check_and_apply(content_length, &opts);
-    if (err) {
-        ESP_LOGE(TAG, "Error: %s", delta_error_as_string(err));
-        goto ERROR;
-    }
-
-    httpd_resp_send(req, NULL, 0);
-    ESP_ERROR_CHECK(example_disconnect());
-    reboot();
-
-ERROR:
-    httpd_resp_send_500(req);
-    return ESP_OK;
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
 }
 
-static const httpd_uri_t ota = {
-    .uri = "/ota",
-    .method = HTTP_POST,
-    .handler = ota_post_handler,
-    .user_ctx = NULL
-};
-
-static httpd_handle_t start_webserver(void)
+static void __attribute__((noreturn)) task_fatal_error(void)
 {
-    httpd_handle_t server = NULL;
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.lru_purge_enable = true;
+    ESP_LOGE(TAG, "Exiting task due to fatal error...");
+    (void)vTaskDelete(NULL);
+    while (1) {
+        ;
+    }
+}
 
-    ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
-    if (httpd_start(&server, &config) == ESP_OK) {
-        ESP_LOGI(TAG, "Registering URI handlers");
-        httpd_register_uri_handler(server, &ota);
-        return server;
+static void ota_example_task(void *pvParameter)
+{
+    esp_err_t err;
+
+    esp_http_client_config_t config = {
+        .url = CONFIG_EXAMPLE_FIRMWARE_UPG_URL,
+        .cert_pem = (char *)server_cert_pem_start,
+        .timeout_ms = CONFIG_EXAMPLE_OTA_RECV_TIMEOUT,
+        .keep_alive_enable = true,
+    };
+#ifdef CONFIG_EXAMPLE_SKIP_COMMON_NAME_CHECK
+    config.skip_cert_common_name_check = true;
+#endif
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (client == NULL) {
+        ESP_LOGE(TAG, "Failed to initialise HTTP connection");
+        task_fatal_error();
+    }
+    err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
+        esp_http_client_cleanup(client);
+        task_fatal_error();
+    }
+    esp_http_client_fetch_headers(client);
+
+    delta_opts_t opts = INIT_DEFAULT_DELTA_OPTS();
+    flash_mem_t *flash = calloc(1, sizeof(flash_mem_t));
+    if (!flash) {
+        task_fatal_error();
     }
 
-    ESP_LOGI(TAG, "Error starting server!");
-    return NULL;
+    int ret = esp_delta_ota_init(flash, &opts);
+    if (ret < 0) {
+        task_fatal_error();
+    }
+    esp_delta_ota_handle_t handle = delta_ota_set_cfg(flash, &read_cb, &seek_cb, &write_cb);
+    if (handle == NULL) {
+        ESP_LOGE(TAG, "delta_ota_set_cfg failed");
+        task_fatal_error();
+    }
+    while (1) {
+        int data_read = esp_http_client_read(client, ota_write_data, BUFFSIZE);
+        if (data_read < 0) {
+            ESP_LOGE(TAG, "Error: SSL data read error");
+            http_cleanup(client);
+            task_fatal_error();
+        } else if (data_read > 0) {
+            if (esp_delta_ota_feed_patch(handle, (const uint8_t *)ota_write_data, data_read) < 0) {
+                ESP_LOGE(TAG, "Error while applying patch");
+                task_fatal_error();
+            }
+        } else if (data_read == 0) {
+            if (esp_http_client_is_complete_data_received(client) == true) {
+                ESP_LOGI(TAG, "Connection closed");
+                break;
+            }
+            if (errno == ECONNRESET || errno == ENOTCONN) {
+                ESP_LOGE(TAG, "Connection closed, errno = %d", errno);
+                break;
+            }
+        }
+    }
+    esp_delta_ota_finish(handle);
+    esp_delta_ota_deinit(handle);
+    esp_ota_set_boot_partition(flash->dest);
+    http_cleanup(client);
+    reboot();
 }
 
 void app_main(void)
@@ -134,9 +195,5 @@ void app_main(void)
      * examples/protocols/README.md for more information about this function.
      */
     ESP_ERROR_CHECK(example_connect());
-
-
-    /* Start the server for the first time */
-    ESP_LOGI(TAG, "Setting up HTTP server...");
-    start_webserver();
+    xTaskCreate(&ota_example_task, "ota_example_task", 8192, NULL, 5, NULL);
 }
