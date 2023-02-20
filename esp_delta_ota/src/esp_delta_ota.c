@@ -12,12 +12,8 @@
 #include <string.h>
 #include <inttypes.h>
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-
 #include "esp_err.h"
 #include "esp_log.h"
-#include "esp_system.h"
 
 #include "esp_delta_ota.h"
 #include "detools.h"

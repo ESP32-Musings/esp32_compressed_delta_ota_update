@@ -49,17 +49,17 @@ static int write_cb(void *arg_p, const uint8_t *buf_p, size_t size)
 
 static int read_cb(void *arg_p, uint8_t *buf_p, size_t size)
 {
-    int *src_offset1 = (int *)arg_p;
+    int *src_offset = (int *)arg_p;
 
     if (size <= 0) {
         return -DELTA_INVALID_BUF_SIZE;
     }
-    if (esp_partition_read(src, *src_offset1, buf_p, size) != ESP_OK) {
+    if (esp_partition_read(src, *src_offset, buf_p, size) != ESP_OK) {
         return -DELTA_READING_SOURCE_ERROR;
     }
 
-    *src_offset1 += size;
-    if (*src_offset1 >= src->size) {
+    *src_offset += size;
+    if (*src_offset >= src->size) {
         return -DELTA_OUT_OF_MEMORY;
     }
 
@@ -68,9 +68,9 @@ static int read_cb(void *arg_p, uint8_t *buf_p, size_t size)
 
 static int seek_cb(void *arg_p, int offset)
 {
-    int *src_offset1 = (int *)arg_p;
-    *src_offset1 +=offset;
-    if (*src_offset1 >= src->size) {
+    int *src_offset = (int *)arg_p;
+    *src_offset +=offset;
+    if (*src_offset >= src->size) {
         return -DELTA_SEEKING_ERROR;
     }
 
