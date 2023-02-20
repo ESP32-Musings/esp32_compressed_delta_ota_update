@@ -9,7 +9,6 @@
 
 #pragma once
 
-#include "esp_ota_ops.h"
 #include "detools_config.h"
 #include "detools.h"
 
@@ -37,18 +36,21 @@
 
 typedef void *esp_delta_ota_handle_t;
 
+typedef int (*read_cb_t)(void *arg_p, uint8_t *buf_p, size_t size);
+typedef int (*seek_cb_t)(void *arg_p, int offset);
+typedef int (*write_cb_t)(void *arg_p, const uint8_t *buf_p, size_t size);
+
 typedef struct {
     const char *src;
     const char *dest;
 } delta_opts_t;
 
-typedef struct flash_mem {
-    const esp_partition_t *src;
-    const esp_partition_t *dest;
+typedef struct esp_delta_ota_cfg {
+    read_cb_t read_cb;
+    seek_cb_t seek_cb;
+    write_cb_t write_cb;
     size_t src_offset;
-    esp_ota_handle_t ota_handle;
-} flash_mem_t;
-
+} esp_delta_ota_cfg_t;
 
 #define INIT_DEFAULT_DELTA_OPTS() { \
     .src = DEFAULT_PARTITION_LABEL_SRC, \
@@ -64,16 +66,9 @@ typedef struct flash_mem {
  */
 const char *delta_error_as_string(int error);
 
+// int esp_delta_ota_init(flash_mem_t *flash, delta_opts_t *opts);
 
-typedef int (*read_cb_t)(void *arg_p, uint8_t *buf_p, size_t size);
-
-typedef int (*seek_cb_t)(void *arg_p, int offset);
-
-typedef int (*write_cb_t)(void *arg_p, const uint8_t *buf_p, size_t size);
-
-int esp_delta_ota_init(flash_mem_t *flash, delta_opts_t *opts);
-
-esp_delta_ota_handle_t delta_ota_set_cfg(flash_mem_t *flash, read_cb_t read_cb, seek_cb_t seek_cb, write_cb_t write_cb);
+esp_delta_ota_handle_t delta_ota_set_cfg(esp_delta_ota_cfg_t *cfg);
 
 int esp_delta_ota_feed_patch(esp_delta_ota_handle_t handle, const uint8_t *buf, int size);
 

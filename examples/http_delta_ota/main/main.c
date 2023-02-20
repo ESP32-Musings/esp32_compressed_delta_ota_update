@@ -17,6 +17,7 @@
 #include "esp_wifi.h"
 #include "esp_netif.h"
 #include "protocol_examples_common.h"
+#include "esp_ota_ops.h"
 
 #include "esp_partition.h"
 
@@ -32,18 +33,15 @@ static char ota_write_data[BUFFSIZE + 1] = { 0 };
 extern const uint8_t server_cert_pem_start[] asm("_binary_ca_cert_pem_start");
 extern const uint8_t server_cert_pem_end[] asm("_binary_ca_cert_pem_end");
 
+const esp_partition_t *src, *dest;
+esp_ota_handle_t ota_handle;
+
 static int write_cb(void *arg_p, const uint8_t *buf_p, size_t size)
 {
-    flash_mem_t *flash;
-    flash = (flash_mem_t *)arg_p;
-
-    if (!flash) {
-        return -DELTA_CASTING_ERROR;
-    }
     if (size <= 0) {
         return -DELTA_INVALID_BUF_SIZE;
     }
-    if (esp_ota_write(flash->ota_handle, buf_p, size) != ESP_OK) {
+    if (esp_ota_write(ota_handle, buf_p, size) != ESP_OK) {
         return -DELTA_WRITING_ERROR;
     }
     return DELTA_OK;
@@ -51,21 +49,17 @@ static int write_cb(void *arg_p, const uint8_t *buf_p, size_t size)
 
 static int read_cb(void *arg_p, uint8_t *buf_p, size_t size)
 {
-    flash_mem_t *flash;
-    flash = (flash_mem_t *)arg_p;
+    int *src_offset1 = (int *)arg_p;
 
-    if (!flash) {
-        return -DELTA_CASTING_ERROR;
-    }
     if (size <= 0) {
         return -DELTA_INVALID_BUF_SIZE;
     }
-    if (esp_partition_read(flash->src, flash->src_offset, buf_p, size) != ESP_OK) {
+    if (esp_partition_read(src, *src_offset1, buf_p, size) != ESP_OK) {
         return -DELTA_READING_SOURCE_ERROR;
     }
 
-    flash->src_offset += size;
-    if (flash->src_offset >= flash->src->size) {
+    *src_offset1 += size;
+    if (*src_offset1 >= src->size) {
         return -DELTA_OUT_OF_MEMORY;
     }
 
@@ -74,15 +68,9 @@ static int read_cb(void *arg_p, uint8_t *buf_p, size_t size)
 
 static int seek_cb(void *arg_p, int offset)
 {
-    flash_mem_t *flash;
-    flash = (flash_mem_t *)arg_p;
-
-    if (!flash) {
-        return -DELTA_CASTING_ERROR;
-    }
-
-    flash->src_offset += offset;
-    if (flash->src_offset >= flash->src->size) {
+    int *src_offset1 = (int *)arg_p;
+    *src_offset1 +=offset;
+    if (*src_offset1 >= src->size) {
         return -DELTA_SEEKING_ERROR;
     }
 
@@ -138,17 +126,28 @@ static void ota_example_task(void *pvParameter)
     }
     esp_http_client_fetch_headers(client);
 
-    delta_opts_t opts = INIT_DEFAULT_DELTA_OPTS();
-    flash_mem_t *flash = calloc(1, sizeof(flash_mem_t));
-    if (!flash) {
+    src = esp_ota_get_running_partition();
+    dest = esp_ota_get_next_update_partition(NULL);
+
+    if (src == NULL || dest == NULL) {
         task_fatal_error();
     }
 
-    int ret = esp_delta_ota_init(flash, &opts);
-    if (ret < 0) {
+    if (src->subtype >= ESP_PARTITION_SUBTYPE_APP_OTA_MAX ||
+        dest->subtype >= ESP_PARTITION_SUBTYPE_APP_OTA_MAX) {
         task_fatal_error();
     }
-    esp_delta_ota_handle_t handle = delta_ota_set_cfg(flash, &read_cb, &seek_cb, &write_cb);
+
+    if (esp_ota_begin(dest, OTA_SIZE_UNKNOWN, &(ota_handle)) != ESP_OK) {
+        task_fatal_error();
+    }
+    esp_delta_ota_cfg_t cfg = {
+        .read_cb = &read_cb,
+        .seek_cb = &seek_cb,
+        .write_cb = &write_cb,
+        .src_offset = 0,
+    };
+    esp_delta_ota_handle_t handle = delta_ota_set_cfg(&cfg);
     if (handle == NULL) {
         ESP_LOGE(TAG, "delta_ota_set_cfg failed");
         task_fatal_error();
@@ -177,7 +176,7 @@ static void ota_example_task(void *pvParameter)
     }
     esp_delta_ota_finish(handle);
     esp_delta_ota_deinit(handle);
-    esp_ota_set_boot_partition(flash->dest);
+    esp_ota_set_boot_partition(dest);
     http_cleanup(client);
     reboot();
 }
